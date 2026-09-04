@@ -1,71 +1,51 @@
 #include<iostream>
 #include<string>
 #include<unistd.h>
-#include<vector>
-#include<sys/wait.h>
-#include<limits.h>
-#include "helper.h"
-#include "map.h"
+#include "interpreter.h"
+#include "prompt.h"
+#include "signals.h"
 
 int main() {
 
     std:: string input;
-    std:: string output;
-    std:: vector<std::string> argv;
-    std::vector<char*> exec_args;
+    int lastStatus = 0;
+    ShellContext context{
+        isatty(STDIN_FILENO) != 0,
+        getpgrp()
+    };
 
-    setBuiltinRegistry();
+    if(context.interactive && !configureShellSignals()) {
+        perror("sigaction");
+        return 1;
+    }
 
     while(1) {
-        pid_t pid;
-        int status = 0;
-
-        char currentDir[PATH_MAX];
-
-
-        // std::cout<<"csh >";
-        printPrompt();
+        if(context.interactive) {
+            printPrompt();
+        }
 
         if(!std::getline(std::cin, input)) {
-            std::cout << '\n';
+            if(context.interactive && consumeShellInterrupt()) {
+                std::cin.clear();
+                lastStatus = 130;
+                continue;
+            }
+
+            if(context.interactive) {
+                std::cout << '\n';
+            }
+
             break;
         }
 
-        argv = parseInput(input);
+        ShellResult result = interpretCommands(input, lastStatus, context);
+        lastStatus = result.status;
 
-        if(argv.empty()) {
-            continue;
+        if(result.shouldExit) {
+            return result.status;
         }
-
-        if(executeBuiltin(argv)) {
-            continue;
-        }
-
-        exec_args = convertArgs(argv);
-        exec_args.push_back(nullptr);
-
-        switch(pid = fork()) {
-
-            case -1:
-                perror("fork");
-                return 1;
-
-            case 0:
-                execvp(exec_args[0], exec_args.data());
-                if(errno) {
-                    perror(exec_args[0]);
-                    status = errno;
-                    return status;
-                }
-                return status;
-
-            default:
-                wait(&status);
-
-        }
-
     }
 
-    return 0;
+    return lastStatus;
 
 }
