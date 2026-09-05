@@ -5,6 +5,10 @@
 #include "shell_context.h"
 #include "shell_result.h"
 
-ShellResult executePipeline(Pipeline& pipeline, const ShellContext& context);
+ShellResult executePipeline(Pipeline& pipeline, ShellContext& context);
+ShellResult moveJobToForeground(Job& job, ShellContext& context);
+void updateBackgroundJobs(ShellContext& context);
+void reportJobChanges(ShellContext& context);
+void shutdownJobs(ShellContext& context);
 
 #endif

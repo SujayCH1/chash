@@ -17,6 +17,7 @@ enum class TokenType {
     RedirectOutputAndError,
     RedirectAppendOutputAndError,
     Pipe,
+    Background,
     Unsupported,
     End
 };

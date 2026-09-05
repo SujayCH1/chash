@@ -3,21 +3,27 @@
 #include<string>
 #include<functional>
 #include<cctype>
+#include<limits>
 #include<limits.h>
+#include<signal.h>
 #include<unistd.h>
 #include<cstdlib>
 #include "builtins.h"
+#include "executor.h"
 
 namespace {
 
-using BuiltinFunction = std::function<ShellResult(const std::vector<std::string>&)>;
+using BuiltinFunction = std::function<ShellResult(const std::vector<std::string>&, ShellContext&)>;
 
 const std::unordered_map<std::string, BuiltinFunction>& builtinRegistry() {
 
     static const std::unordered_map<std::string, BuiltinFunction> registry = {
+        {"bg", resumeBackgroundJob},
         {"cd", changeDirectory},
         {"exit", exitProcess},
         {"export", exportVariables},
+        {"fg", moveForegroundJob},
+        {"jobs", listJobs},
         {"unset", unsetVariables}
     };
 
@@ -62,6 +68,70 @@ bool setVariable(const std::string& assignment) {
     return true;
 }
 
+bool parseJobId(const std::string& value, int& jobId) {
+
+    std::size_t position = 0;
+
+    if(!value.empty() && value[0] == '%') {
+        position = 1;
+    }
+
+    if(position == value.size()) {
+        return false;
+    }
+
+    int number = 0;
+
+    for(; position < value.size(); position++) {
+        char character = value[position];
+
+        if(!std::isdigit(static_cast<unsigned char>(character))) {
+            return false;
+        }
+
+        int digit = character - '0';
+
+        if(number > (std::numeric_limits<int>::max() - digit) / 10) {
+            return false;
+        }
+
+        number = number * 10 + digit;
+    }
+
+    if(number == 0) {
+        return false;
+    }
+
+    jobId = number;
+    return true;
+}
+
+Job* mostRecentStoppedJob(JobTable& jobs) {
+
+    std::vector<Job>& allJobs = jobs.allJobs();
+
+    for(auto job = allJobs.rbegin(); job != allJobs.rend(); job++) {
+        if(job->state == JobState::Stopped) {
+            return &*job;
+        }
+    }
+
+    return nullptr;
+}
+
+Job* mostRecentActiveJob(JobTable& jobs) {
+
+    std::vector<Job>& allJobs = jobs.allJobs();
+
+    for(auto job = allJobs.rbegin(); job != allJobs.rend(); job++) {
+        if(job->id != 0 && job->state != JobState::Done) {
+            return &*job;
+        }
+    }
+
+    return nullptr;
+}
+
 }
 
 bool isBuiltin(const std::vector<std::string>& args) {
@@ -81,7 +151,7 @@ bool isVariableAssignment(const std::string& value) {
            validVariableName(value.substr(0, separator));
 }
 
-ShellResult executeBuiltin(const std::vector<std::string>& args) {
+ShellResult executeBuiltin(const std::vector<std::string>& args, ShellContext& context) {
 
     if(args.empty()) {
         return {1, false};
@@ -93,7 +163,7 @@ ShellResult executeBuiltin(const std::vector<std::string>& args) {
         return {127, false};
     }
 
-    return builtin->second(args);
+    return builtin->second(args, context);
 }
 
 ShellResult executeVariableAssignments(const std::vector<std::string>& args) {
@@ -112,7 +182,7 @@ ShellResult executeVariableAssignments(const std::vector<std::string>& args) {
     return {0, false};
 }
 
-ShellResult changeDirectory (const std::vector<std::string>& args) {
+ShellResult changeDirectory (const std::vector<std::string>& args, ShellContext&) {
 
     if(args.size() > 2) {
         std::cerr << "cd: too many arguments\n";
@@ -160,7 +230,7 @@ ShellResult changeDirectory (const std::vector<std::string>& args) {
     return {0, false};
 }
 
-ShellResult exitProcess (const std::vector<std::string>& args) {
+ShellResult exitProcess (const std::vector<std::string>& args, ShellContext&) {
 
     if(args.size() > 2) {
         std::cerr << "exit: too many arguments\n";
@@ -181,7 +251,7 @@ ShellResult exitProcess (const std::vector<std::string>& args) {
     return {status & 255, true};
 }
 
-ShellResult exportVariables (const std::vector<std::string>& args) {
+ShellResult exportVariables (const std::vector<std::string>& args, ShellContext&) {
 
     for(std::size_t i = 1; i < args.size(); i++) {
         std::size_t separator = args[i].find('=');
@@ -211,7 +281,7 @@ ShellResult exportVariables (const std::vector<std::string>& args) {
     return {0, false};
 }
 
-ShellResult unsetVariables (const std::vector<std::string>& args) {
+ShellResult unsetVariables (const std::vector<std::string>& args, ShellContext&) {
 
     for(std::size_t i = 1; i < args.size(); i++) {
         if(!validVariableName(args[i])) {
@@ -226,4 +296,115 @@ ShellResult unsetVariables (const std::vector<std::string>& args) {
     }
 
     return {0, false};
+}
+
+ShellResult listJobs(const std::vector<std::string>& args, ShellContext& context) {
+
+    if(args.size() != 1) {
+        std::cerr << "jobs: too many arguments\n";
+        return {1, false};
+    }
+
+    for(const Job& job : context.jobs.allJobs()) {
+        if(job.id == 0) {
+            continue;
+        }
+
+        std::cout << '[' << job.id << "] ";
+
+        if(job.state == JobState::Running) {
+            std::cout << "Running";
+        } else if(job.state == JobState::Stopped) {
+            std::cout << "Stopped";
+        } else {
+            std::cout << "Done";
+        }
+
+        std::cout << "  " << job.command << '\n';
+    }
+
+    return {0, false};
+}
+
+ShellResult resumeBackgroundJob(const std::vector<std::string>& args, ShellContext& context) {
+
+    if(args.size() > 2) {
+        std::cerr << "bg: too many arguments\n";
+        return {1, false};
+    }
+
+    Job* job = nullptr;
+
+    if(args.size() == 1) {
+        job = mostRecentStoppedJob(context.jobs);
+
+        if(job == nullptr) {
+            std::cerr << "bg: no stopped jobs\n";
+            return {1, false};
+        }
+    } else {
+        int jobId;
+
+        if(!parseJobId(args[1], jobId)) {
+            std::cerr << "bg: invalid job id: " << args[1] << '\n';
+            return {1, false};
+        }
+
+        job = context.jobs.findById(jobId);
+
+        if(job == nullptr) {
+            std::cerr << "bg: job not found: " << args[1] << '\n';
+            return {1, false};
+        }
+    }
+
+    if(job->state != JobState::Stopped) {
+        std::cerr << "bg: job is not stopped: " << job->id << '\n';
+        return {1, false};
+    }
+
+    if(kill(-job->pgid, SIGCONT) == -1) {
+        perror("bg");
+        return {1, false};
+    }
+
+    context.jobs.markJobRunning(*job);
+    job->background = true;
+    std::cout << '[' << job->id << "] Running  " << job->command << '\n';
+    return {0, false};
+}
+
+ShellResult moveForegroundJob(const std::vector<std::string>& args, ShellContext& context) {
+
+    if(args.size() > 2) {
+        std::cerr << "fg: too many arguments\n";
+        return {1, false};
+    }
+
+    Job* job = nullptr;
+
+    if(args.size() == 1) {
+        job = mostRecentActiveJob(context.jobs);
+
+        if(job == nullptr) {
+            std::cerr << "fg: no active jobs\n";
+            return {1, false};
+        }
+    } else {
+        int jobId;
+
+        if(!parseJobId(args[1], jobId)) {
+            std::cerr << "fg: invalid job id: " << args[1] << '\n';
+            return {1, false};
+        }
+
+        job = context.jobs.findById(jobId);
+
+        if(job == nullptr || job->state == JobState::Done) {
+            std::cerr << "fg: job not found: " << args[1] << '\n';
+            return {1, false};
+        }
+    }
+
+    return moveJobToForeground(*job, context);
 }

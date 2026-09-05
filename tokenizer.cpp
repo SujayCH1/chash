@@ -306,6 +306,8 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
             } else if(character == '&' && i + 1 < input.size() && input[i + 1] == '&') {
                 tokens.push_back({TokenType::Unsupported, "&&", i});
                 i++;
+            } else if(character == '&') {
+                tokens.push_back({TokenType::Background, "&", i});
             } else {
                 tokens.push_back({TokenType::Unsupported, std::string(1, character), i});
             }

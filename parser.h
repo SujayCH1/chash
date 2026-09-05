@@ -9,7 +9,7 @@
 
 struct ParserStatus {
     bool status;
-    Pipeline pipeline;
+    CommandList commandList;
     std::string err;
     std::size_t errPos;
 };

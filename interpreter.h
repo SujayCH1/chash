@@ -7,6 +7,6 @@
 
 ShellResult interpretCommands(const std::string& input,
                               int lastStatus,
-                              const ShellContext& context);
+                              ShellContext& context);
 
 #endif

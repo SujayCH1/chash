@@ -58,23 +58,14 @@ bool configureChildSignals() {
 
     const int defaultSignals[] = {
         SIGINT,
-        SIGQUIT
-    };
-
-    for(int signalNumber : defaultSignals) {
-        if(!setSignalDisposition(signalNumber, SIG_DFL)) {
-            return false;
-        }
-    }
-
-    const int ignoredSignals[] = {
+        SIGQUIT,
         SIGTSTP,
         SIGTTIN,
         SIGTTOU
     };
 
-    for(int signalNumber : ignoredSignals) {
-        if(!setSignalDisposition(signalNumber, SIG_IGN)) {
+    for(int signalNumber : defaultSignals) {
+        if(!setSignalDisposition(signalNumber, SIG_DFL)) {
             return false;
         }
     }

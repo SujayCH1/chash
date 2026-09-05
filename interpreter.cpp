@@ -7,7 +7,7 @@
 
 ShellResult interpretCommands (const std::string& input,
                                int lastStatus,
-                               const ShellContext& context) {
+                               ShellContext& context) {
 
     TokenizationStatus tokenizationStatus = tokenize(input, lastStatus);
 
@@ -27,5 +27,15 @@ ShellResult interpretCommands (const std::string& input,
         return {2, false};
     }
 
-    return executePipeline(parserStatus.pipeline, context);
+    ShellResult result{0, false};
+
+    for(Pipeline& pipeline : parserStatus.commandList.pipelines) {
+        result = executePipeline(pipeline, context);
+
+        if(result.shouldExit) {
+            return result;
+        }
+    }
+
+    return result;
 }

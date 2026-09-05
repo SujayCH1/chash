@@ -58,6 +58,7 @@ bool parseFileDescriptor(const std::string& value, int& descriptor) {
 
 ParserStatus parse (const std::vector<Token>& tokens) {
 
+    CommandList commandList;
     Pipeline pipeline;
     Command command;
 
@@ -138,6 +139,20 @@ ParserStatus parse (const std::vector<Token>& tokens) {
             continue;
         }
 
+        if(token.type == TokenType::Background) {
+            if(command.args.empty()) {
+                return {false, {}, "expected command before background operator", token.pos};
+            }
+
+            pipeline.commands.push_back(command);
+            pipeline.background = true;
+            commandList.pipelines.push_back(pipeline);
+
+            command = {};
+            pipeline = {};
+            continue;
+        }
+
         if(token.type == TokenType::Unsupported) {
             return {false, {}, "unsupported operator " + token.val, token.pos};
         }
@@ -156,11 +171,12 @@ ParserStatus parse (const std::vector<Token>& tokens) {
                     return {false, {}, "expected command after pipe", token.pos};
                 }
 
-                return {true, pipeline, "", token.pos};
+                return {true, commandList, "", token.pos};
             }
 
             pipeline.commands.push_back(command);
-            return {true, pipeline, "", token.pos};
+            commandList.pipelines.push_back(pipeline);
+            return {true, commandList, "", token.pos};
         }
     }
 

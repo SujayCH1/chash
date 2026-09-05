@@ -6,6 +6,7 @@ add_library(chash_core
     builtins.cpp
     executor.cpp
     interpreter.cpp
+    job_table.cpp
     parser.cpp
     prompt.cpp
     signals.cpp
