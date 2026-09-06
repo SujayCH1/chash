@@ -23,6 +23,7 @@ const std::unordered_map<std::string, BuiltinFunction>& builtinRegistry() {
         {"exit", exitProcess},
         {"export", exportVariables},
         {"fg", moveForegroundJob},
+        {"history", printHistory},
         {"jobs", listJobs},
         {"unset", unsetVariables}
     };
@@ -321,6 +322,20 @@ ShellResult listJobs(const std::vector<std::string>& args, ShellContext& context
         }
 
         std::cout << "  " << job.command << '\n';
+    }
+
+    return {0, false};
+}
+
+ShellResult printHistory(const std::vector<std::string>& args, ShellContext& context) {
+
+    if(args.size() != 1) {
+        std::cerr << "history: too many arguments\n";
+        return {1, false};
+    }
+
+    for(std::size_t i = 0; i < context.history.entries.size(); i++) {
+        std::cout << i + 1 << "  " << context.history.entries[i] << '\n';
     }
 
     return {0, false};

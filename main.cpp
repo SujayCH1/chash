@@ -13,8 +13,13 @@ int main() {
     ShellContext context{
         isatty(STDIN_FILENO) != 0,
         getpgrp(),
-        JobTable{}
+        JobTable{},
+        CommandHistory{}
     };
+
+    if(!initializeHistory(context.history)) {
+        std::cerr << "csh: could not initialize command history\n";
+    }
 
     if(context.interactive && !configureShellSignals()) {
         perror("sigaction");
@@ -41,8 +46,17 @@ int main() {
             }
 
             shutdownJobs(context);
+
+            if(!saveHistory(context.history)) {
+                std::cerr << "csh: could not save command history\n";
+            } else if(!pruneHistoryFile(context.history)) {
+                std::cerr << "csh: could not prune command history\n";
+            }
+
             break;
         }
+
+        addHistoryEntry(context.history, input);
 
         updateBackgroundJobs(context);
         reportJobChanges(context);
@@ -52,6 +66,13 @@ int main() {
 
         if(result.shouldExit) {
             shutdownJobs(context);
+
+            if(!saveHistory(context.history)) {
+                std::cerr << "csh: could not save command history\n";
+            } else if(!pruneHistoryFile(context.history)) {
+                std::cerr << "csh: could not prune command history\n";
+            }
+
             return result.status;
         }
     }

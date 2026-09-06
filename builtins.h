@@ -15,6 +15,7 @@ ShellResult exitProcess(const std::vector<std::string>& args, ShellContext& cont
 ShellResult exportVariables(const std::vector<std::string>& args, ShellContext& context);
 ShellResult unsetVariables(const std::vector<std::string>& args, ShellContext& context);
 ShellResult listJobs(const std::vector<std::string>& args, ShellContext& context);
+ShellResult printHistory(const std::vector<std::string>& args, ShellContext& context);
 ShellResult resumeBackgroundJob(const std::vector<std::string>& args, ShellContext& context);
 ShellResult moveForegroundJob(const std::vector<std::string>& args, ShellContext& context);
 

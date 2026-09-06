@@ -5,6 +5,7 @@ project(chash VERSION 0.1.0 LANGUAGES CXX)
 add_library(chash_core
     builtins.cpp
     executor.cpp
+    history.cpp
     interpreter.cpp
     job_table.cpp
     parser.cpp
