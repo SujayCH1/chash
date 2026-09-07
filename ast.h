@@ -25,9 +25,16 @@ struct Command {
     std::vector<Redirection> redirections;
 };
 
+enum class ExecutionCondition {
+    Always,
+    OnSuccess,
+    OnFailure
+};
+
 struct Pipeline {
     std::vector<Command> commands;
     bool background = false;
+    ExecutionCondition condition = ExecutionCondition::Always;
 };
 
 struct CommandList {

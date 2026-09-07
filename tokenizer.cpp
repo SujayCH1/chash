@@ -55,29 +55,58 @@ bool validVariableName(const std::string& name) {
     return true;
 }
 
-void appendVariable(const std::string& name, std::string& word) {
+void appendCharacter(std::string& word,
+                     std::vector<bool>& globProtection,
+                     char character,
+                     bool protectedCharacter) {
+
+    word.push_back(character);
+    globProtection.push_back(protectedCharacter);
+}
+
+void appendText(const std::string& text,
+                std::string& word,
+                std::vector<bool>& globProtection,
+                bool protectedCharacters) {
+
+    for(char character : text) {
+        appendCharacter(word, globProtection, character, protectedCharacters);
+    }
+}
+
+void appendVariable(const std::string& name,
+                    std::string& word,
+                    std::vector<bool>& globProtection,
+                    bool protectedCharacters) {
 
     const char* value = std::getenv(name.c_str());
 
     if(value != nullptr) {
-        word.append(value);
+        appendText(value, word, globProtection, protectedCharacters);
     }
 }
 
 bool expandVariable(const std::string& input,
                     std::size_t& position,
                     std::string& word,
+                    std::vector<bool>& globProtection,
+                    bool protectedCharacters,
                     int lastStatus,
                     std::string& error,
                     std::size_t& errorPosition) {
 
     if(position + 1 >= input.size()) {
-        word.push_back('$');
+        appendCharacter(word, globProtection, '$', protectedCharacters);
         return true;
     }
 
     if(input[position + 1] == '?') {
-        word.append(std::to_string(lastStatus));
+        appendText(
+            std::to_string(lastStatus),
+            word,
+            globProtection,
+            protectedCharacters
+        );
         position++;
         return true;
     }
@@ -98,9 +127,19 @@ bool expandVariable(const std::string& input,
         std::string name = input.substr(position + 2, closing - position - 2);
 
         if(name == "?") {
-            word.append(std::to_string(lastStatus));
+            appendText(
+                std::to_string(lastStatus),
+                word,
+                globProtection,
+                protectedCharacters
+            );
         } else if(validVariableName(name)) {
-            appendVariable(name, word);
+            appendVariable(
+                name,
+                word,
+                globProtection,
+                protectedCharacters
+            );
         } else {
             error = "invalid variable name";
             errorPosition = position;
@@ -112,7 +151,7 @@ bool expandVariable(const std::string& input,
     }
 
     if(!isVariableStart(input[position + 1])) {
-        word.push_back('$');
+        appendCharacter(word, globProtection, '$', protectedCharacters);
         return true;
     }
 
@@ -122,7 +161,12 @@ bool expandVariable(const std::string& input,
         end++;
     }
 
-    appendVariable(input.substr(position + 1, end - position - 1), word);
+    appendVariable(
+        input.substr(position + 1, end - position - 1),
+        word,
+        globProtection,
+        protectedCharacters
+    );
     position = end - 1;
     return true;
 }
@@ -134,6 +178,7 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
     std::vector<Token> tokens;
     TokenizerState state = TokenizerState::Normal;
     std::string temp;
+    std::vector<bool> globProtection;
     std::size_t wordPos = 0;
     std::size_t quotePos = 0;
     bool wordStarted = false;
@@ -143,8 +188,9 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
 
     auto addWord = [&]() {
         if(wordStarted) {
-            tokens.push_back({TokenType::Word, temp, wordPos});
+            tokens.push_back({TokenType::Word, temp, wordPos, -1, globProtection});
             temp.clear();
+            globProtection.clear();
             wordStarted = false;
             wordQuotedOrEscaped = false;
         }
@@ -158,7 +204,7 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
             if(character == '\'') {
                 state = TokenizerState::Normal;
             } else {
-                temp.push_back(character);
+                appendCharacter(temp, globProtection, character, true);
             }
 
             continue;
@@ -168,7 +214,7 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
             if(character == '"') {
                 state = TokenizerState::Normal;
             } else if(character == '$') {
-                if(!expandVariable(input, i, temp, lastStatus,
+                if(!expandVariable(input, i, temp, globProtection, true, lastStatus,
                                    expansionError, expansionErrorPosition)) {
                     return {false, {}, expansionError, expansionErrorPosition};
                 }
@@ -180,13 +226,13 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
                 char escaped = input[i + 1];
 
                 if(escaped == '"' || escaped == '\\' || escaped == '$' || escaped == '`') {
-                    temp.push_back(escaped);
+                    appendCharacter(temp, globProtection, escaped, true);
                     i++;
                 } else {
-                    temp.push_back(character);
+                    appendCharacter(temp, globProtection, character, true);
                 }
             } else {
-                temp.push_back(character);
+                appendCharacter(temp, globProtection, character, true);
             }
 
             continue;
@@ -220,7 +266,7 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
             }
 
             wordQuotedOrEscaped = true;
-            temp.push_back(input[++i]);
+            appendCharacter(temp, globProtection, input[++i], true);
             continue;
         }
 
@@ -230,7 +276,7 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
                 wordPos = i;
             }
 
-            if(!expandVariable(input, i, temp, lastStatus,
+            if(!expandVariable(input, i, temp, globProtection, false, lastStatus,
                                expansionError, expansionErrorPosition)) {
                 return {false, {}, expansionError, expansionErrorPosition};
             }
@@ -262,6 +308,7 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
 
                     operatorPos = wordPos;
                     temp.clear();
+                    globProtection.clear();
                     wordStarted = false;
                     wordQuotedOrEscaped = false;
                 }
@@ -299,15 +346,17 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
             } else if(character == '>') {
                 tokens.push_back({TokenType::RedirectOutput, ">", operatorPos, ioNumber});
             } else if(character == '|' && i + 1 < input.size() && input[i + 1] == '|') {
-                tokens.push_back({TokenType::Unsupported, "||", i});
+                tokens.push_back({TokenType::Or, "||", i});
                 i++;
             } else if(character == '|') {
                 tokens.push_back({TokenType::Pipe, "|", i});
             } else if(character == '&' && i + 1 < input.size() && input[i + 1] == '&') {
-                tokens.push_back({TokenType::Unsupported, "&&", i});
+                tokens.push_back({TokenType::And, "&&", i});
                 i++;
             } else if(character == '&') {
                 tokens.push_back({TokenType::Background, "&", i});
+            } else if(character == ';') {
+                tokens.push_back({TokenType::Sequence, ";", i});
             } else {
                 tokens.push_back({TokenType::Unsupported, std::string(1, character), i});
             }
@@ -320,7 +369,7 @@ TokenizationStatus tokenize (const std::string& input, int lastStatus) {
             wordPos = i;
         }
 
-        temp.push_back(character);
+        appendCharacter(temp, globProtection, character, false);
     }
 
     if(state == TokenizerState::SingleQuote) {

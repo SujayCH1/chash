@@ -61,6 +61,8 @@ ParserStatus parse (const std::vector<Token>& tokens) {
     CommandList commandList;
     Pipeline pipeline;
     Command command;
+    bool requiresFollowingCommand = false;
+    std::size_t conditionalOperatorPosition = 0;
 
     for(std::size_t i = 0; i < tokens.size(); i++) {
 
@@ -150,6 +152,37 @@ ParserStatus parse (const std::vector<Token>& tokens) {
 
             command = {};
             pipeline = {};
+            requiresFollowingCommand = false;
+            continue;
+        }
+
+        if(token.type == TokenType::Sequence ||
+           token.type == TokenType::And ||
+           token.type == TokenType::Or) {
+            if(command.args.empty()) {
+                return {false, {}, "expected command before " + token.val, token.pos};
+            }
+
+            pipeline.commands.push_back(command);
+            commandList.pipelines.push_back(pipeline);
+
+            ExecutionCondition nextCondition;
+
+            if(token.type == TokenType::And) {
+                nextCondition = ExecutionCondition::OnSuccess;
+                requiresFollowingCommand = true;
+            } else if(token.type == TokenType::Or) {
+                nextCondition = ExecutionCondition::OnFailure;
+                requiresFollowingCommand = true;
+            } else {
+                nextCondition = ExecutionCondition::Always;
+                requiresFollowingCommand = false;
+            }
+
+            conditionalOperatorPosition = token.pos;
+            command = {};
+            pipeline = {};
+            pipeline.condition = nextCondition;
             continue;
         }
 
@@ -169,6 +202,10 @@ ParserStatus parse (const std::vector<Token>& tokens) {
 
                 if(!pipeline.commands.empty()) {
                     return {false, {}, "expected command after pipe", token.pos};
+                }
+
+                if(requiresFollowingCommand) {
+                    return {false, {}, "expected command after conditional operator", conditionalOperatorPosition};
                 }
 
                 return {true, commandList, "", token.pos};
